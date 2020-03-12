@@ -15,17 +15,23 @@ while True:
 
     key = msg.name+':'+msg.type
     output = None
+    
     if key in dns_table.rr.keys():
-        print( str(time())+' client: Found record in local DNS table.' )
         record = dns_table.rr[key]
-        output = record.name+': '+record.value
+        print( str(time())+' client: Found "'+rtype+'" record for "'+hostname+'" in local DNS table.' )
+        output = 'Response: '+record.name+', '+record.type+': '+record.value+'.\n'
     else:
         clientSocket.sendto( msg.encode(), (serverName, serverPort) )
         response, serverAddress = clientSocket.recvfrom( 2048 )
-        response = DnsMessage.decode_message( response )
-        dns_table.touch_record( DnsRecord(response.name, response.type, response.value, 60, 0) )
-        output = response.name+': '+response.value
+        response = DnsMessage.decode_message( response ) 
+        output = 'Response: '+response.name+', '+response.type+': '+response.value+'.\n'
 
-    print( response.name+': '+response.value )
+        if response.type == 'INVALID':
+            print( 'That was an invalid query!\n' )
+            continue
+        elif response.value != 'Record not found':
+            dns_table.append_record( DnsRecord(response.name, response.type, response.value, 60, 0) )
+
+    print( output )
 
 clientSocket.close()

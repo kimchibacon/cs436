@@ -9,7 +9,7 @@ def main():
 
     # Initialize resource table for localserver
     #
-    server.dns_table.touch_record( DnsRecord('www.viasat.com', 'A', '8.37.96.179', 0, 1) )
+    server.dns_table.append_record( DnsRecord('www.viasat.com', 'A', '8.37.96.179', 0, 1) )
 
     # Main event loop
     #

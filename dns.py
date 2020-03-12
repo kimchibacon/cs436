@@ -25,10 +25,11 @@ class DnsRecord:
 class DnsMessage:
 
     types = {   
-                'A':     '1000',
-                'AAAA':  '0100',
-                'CNAME': '0010',
-                'NS':    '0001'
+                'A':        '1000',
+                'AAAA':     '0100',
+                'CNAME':    '0010',
+                'NS':       '0001',
+                'INVALID':  '0000'
             }
 
     # ============================================
@@ -44,7 +45,13 @@ class DnsMessage:
     # ============================================
     def encode( self ):
         fmt = '!IBII'+str(len(self.name))+'s'+str(len(self.value))+'s'
-        rtype = DnsMessage.types[self.type] 
+        
+        rtype = None
+        if self.type in DnsMessage.types.keys():
+            rtype = DnsMessage.types[self.type]
+        else:
+            rtype = DnsMessage.types['INVALID']
+
         qr = format( self.is_response, '#04' )
         qr_type = int( '0b'+qr+rtype, 2 )
         encMsg = pack( fmt, self.tid, qr_type, len(self.name), len(self.value), self.name.encode(), self.value.encode() )
@@ -54,11 +61,13 @@ class DnsMessage:
     # ============================================
     @staticmethod
     def decode_message( encMsg ):
+        message_valid = True
+
         nlength = int(str(encMsg[5])+str(encMsg[6])+str(encMsg[7])+str(encMsg[8]))
         vlength = int(str(encMsg[9])+str(encMsg[10])+str(encMsg[11])+str(encMsg[12]))
         fmt = '!IBII'+str(nlength)+'s'+str(vlength)+'s'
         if len( encMsg ) != calcsize( fmt ):
-            return None
+            message_valid = False
         
         decMsg = unpack( fmt, encMsg )
         qr_type = format( decMsg[1], '#010b' )
@@ -70,10 +79,17 @@ class DnsMessage:
         for key in DnsMessage.types:
             if DnsMessage.types[key] == qr_type[6:]:
                 rtype = key
+
         name = decMsg[4].decode()
         value = decMsg[5].decode()
 
-        return DnsMessage( tid, qr, rtype, name, value )
+        if rtype is None or rtype == 'INVALID' or '.' not in name:
+            message_valid = False
+        
+        if message_valid:
+            return DnsMessage( tid, qr, rtype, name, value )
+        else:
+            return DnsMessage( 0, False, 'INVALID', 'INVALID', 'Invalid format' )
 
 
 #-------------------------------------------------------------------------
@@ -103,12 +119,18 @@ class DnsTable:
                 break
 
             sleep( 1 )
+            expired_records = [] 
+            self._ttls_locked = True
+
             for key in self.rr:
-                self._ttls_locked = True
                 self.rr[key].ttl -= 1
                 if self.rr[key].static == 0 and self.rr[key].ttl <= 0:
-                    del self.rr[key]
-                self._ttls_locked = False
+                    expired_records.append( key )
+
+            for key in expired_records:
+                del self.rr[key]    
+                
+            self._ttls_locked = False
 
     # ============================================
     # ============================================
@@ -118,13 +140,10 @@ class DnsTable:
 
     # ============================================
     # ============================================
-    def touch_record( self, record ):
+    def append_record( self, record ):
         key = record.name+':'+record.type
         if key not in self.rr.keys():
             self.rr[key] = record 
-        else:
-            if self.rr[key].static == 0:
-                self.rr[key].ttl = 60
 
             
 #-------------------------------------------------------------------------
@@ -154,11 +173,10 @@ class DnsServer:
         # If the message received is in the wrong format, it
         # will decode as None. Throw an error to the sender
         #
-        if src_msg is None:
+        if src_msg.type == 'INVALID':
             value = 'Invalid query!'
-            err_msg = DnsMessage( src_msg.tid, True, src_msg.type, src_msg.name, value )  
-            print( str(time())+' '+self.name+': Invalid query received.' )
-            self._socket.sendto( err_msg.encode(), src_address )
+            print( str(time())+' '+self.name+': Invalid message received.' )
+            self._socket.sendto( src_msg.encode(), src_address )
             return
 
         if src_msg.is_response:
@@ -171,7 +189,8 @@ class DnsServer:
     def _handle_query( self, src_msg, src_address ):
         ret_msg = None
         key = src_msg.name+':'+src_msg.type
-        print( 'LOOKING FOR '+key )
+
+        print( str(time())+' '+self.name+': Request received from host at '+src_address[0]+':'+str(src_address[1])+' for hostname "'+src_msg.name+'"' )
 
         # If the the local record table has what we're looking for
         # prepare a message with that information
@@ -179,7 +198,7 @@ class DnsServer:
         if key in self.dns_table.rr.keys():
             dns_rec = self.dns_table.rr[key]
             ret_msg = DnsMessage( src_msg.tid, True, dns_rec.type, dns_rec.name, dns_rec.value ) 
-            print( str(time())+' '+self.name+': Found record in local table.' )
+            print( str(time())+' '+self.name+': Found "'+src_msg.type+'" record for "'+src_msg.name+'" in local table.' )
 
         # If not, look for an authoritative server in local records
         #
@@ -198,32 +217,38 @@ class DnsServer:
                 auth_msg = DnsMessage( self._generate_tid(), False, 'A', src_msg.name, '' )
                 self._pending_queries[self._tid] = (src_address, src_msg.tid)
 
-                print( str(time())+' '+self.name+': Found authoritative server in local table. Sending request to port '+str(auth_port)+'...' )
+                print( str(time())+' '+self.name+': "'+src_msg.type+'" record not found for '+src_msg.name+'. Sending "'+src_msg.type+'" request to 127.0.0.1:'+str(auth_port)+'.' )
                 self._socket.sendto( auth_msg.encode(), ('127.0.0.1', auth_port) )
                 return
                 
             # If not found, let the sender know
             #
             else:
-                value = 'No DNS record found for '+src_msg.name
-                ret_msg = DnsMessage( src_msg.tid, src_msg.is_response, src_msg.type, src_msg.name, value )
-                print( str(time())+' '+self.name+': No record found for '+src_msg.name )
+                ret_msg = DnsMessage( src_msg.tid, src_msg.is_response, src_msg.type, src_msg.name, 'Record not found' )
+                print( str(time())+' '+self.name+': No '+src_msg.type+' record found for '+src_msg.name )
 
         # Send final response back to client 
         #
-        print( str(time())+' '+self.name+': Sending response to '+str(src_address)+' from _handle_query: '+ret_msg.value )
+        print( str(time())+' '+self.name+': Sending response to '+src_address[0]+':'+str(src_address[1])+': '+ret_msg.value+'.' )
         self._socket.sendto( ret_msg.encode(), src_address )
 
     # ============================================
     # ============================================
     def _handle_response( self, auth_msg, src_address ):
-        print( str(time())+' '+self.name+': Received response from '+str(src_address)+': '+auth_msg.value )
+        if auth_msg.type == 'INVALID':
+            del self._pending_queries[auth_msg.tid]
+            return;
+
+        print( str(time())+' '+self.name+': Received response from '+src_address[0]+':'+str(src_address[1])+': '+auth_msg.value+'.' )
+        
+        if auth_msg.value != 'Record not found':
+            self.dns_table.append_record( DnsRecord(auth_msg.name, auth_msg.type, auth_msg.value, 60, 0) )
+
         client_address,client_tid = self._pending_queries[auth_msg.tid]
         del self._pending_queries[auth_msg.tid]
         auth_msg.tid = client_tid
-        print( str(time())+' '+self.name+': Sending response to '+str(client_address)+' from _handle_reponse: '+auth_msg.value )
+        print( str(time())+' '+self.name+': Sending response to '+client_address[0]+':'+str(client_address[1])+': '+auth_msg.value+'.' )
         self._socket.sendto( auth_msg.encode(), client_address )
-        self.dns_table.touch_record( DnsRecord(auth_msg.name, auth_msg.type, auth_msg.value, 60, 0) )
 
     # ============================================
     # ============================================
