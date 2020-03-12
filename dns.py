@@ -18,6 +18,10 @@ class DnsRecord:
         self.ttl = ttl
         self.static = static
 
+    def print( self ):
+        print( '|%-30s|%-8s|%-30s|%-6d|%-7d|' % \
+                (self.name, self.type, self.value, self.ttl, self.static) )
+
 
 #-------------------------------------------------------------------------
 # DnsMessage
@@ -68,7 +72,7 @@ class DnsMessage:
         fmt = '!IBII'+str(nlength)+'s'+str(vlength)+'s'
         if len( encMsg ) != calcsize( fmt ):
             message_valid = False
-        
+        6
         decMsg = unpack( fmt, encMsg )
         qr_type = format( decMsg[1], '#010b' )
 
@@ -101,6 +105,7 @@ class DnsTable:
     # ============================================
     def __init__( self ):
         self.rr = OrderedDict()
+        self._table_locked = False
 
         # Start a separate thread to manage TTL times
         # and delete expired entries
@@ -114,23 +119,31 @@ class DnsTable:
     def _tick_ttl( self ):
         # Delete any records that have outlived their TTL
         #
+        time_delayed = 0
         while True:
             if self._stop_threads:
                 break
 
-            sleep( 1 )
+            sleep( 1 - time_delayed )
             expired_records = [] 
-            self._ttls_locked = True
+            
+            start_time = time()
+            while self._table_locked:
+                sleep( 0.0000001 )
+
+            self._table_locked = True
 
             for key in self.rr:
-                self.rr[key].ttl -= 1
-                if self.rr[key].static == 0 and self.rr[key].ttl <= 0:
-                    expired_records.append( key )
+                if self.rr[key].static == 0:
+                    self.rr[key].ttl -= 1
+                    if self.rr[key].ttl <= 0:
+                        expired_records.append( key )
 
             for key in expired_records:
                 del self.rr[key]    
                 
-            self._ttls_locked = False
+            time_delayed = time() - start_time
+            self._table_locked = False
 
     # ============================================
     # ============================================
@@ -141,9 +154,32 @@ class DnsTable:
     # ============================================
     # ============================================
     def append_record( self, record ):
+        while self._table_locked:
+            sleep( 0.0000001 )
+
+        self._table_locked = True
         key = record.name+':'+record.type
         if key not in self.rr.keys():
             self.rr[key] = record 
+        self._table_locked = False
+
+    # ============================================
+    # ============================================
+    def print_table( self ):
+        while self._table_locked:
+            sleep( 0.0000001 )
+
+        self._table_locked = True
+        
+        print( '\n %-30s %-8s %-30s %-6s %-5s' % ('Name', 'Type', 'Value', 'TTS', 'Static') )
+        print( '---------------------------------------------------------------------------------------' )
+
+        for key in self.rr:
+            self.rr[key].print()
+
+        print( '---------------------------------------------------------------------------------------' )
+        print( '\n' )
+        self._table_locked = False
 
             
 #-------------------------------------------------------------------------
@@ -206,7 +242,8 @@ class DnsServer:
             # If authoritative server is found, send it a query,
             # and return that response to sender
             #
-            domain = src_msg.name.split( '.', 1 )[1]
+            split_name = src_msg.name.split( '.' )
+            domain = split_name[-2]+'.'+split_name[-1]
             domain_key = domain+':NS'
             if domain_key in self.dns_table.rr.keys():
                 auth_port = None
@@ -231,6 +268,7 @@ class DnsServer:
         #
         print( str(time())+' '+self.name+': Sending response to '+src_address[0]+':'+str(src_address[1])+': '+ret_msg.value+'.' )
         self._socket.sendto( ret_msg.encode(), src_address )
+        self.dns_table.print_table()
 
     # ============================================
     # ============================================
@@ -249,6 +287,7 @@ class DnsServer:
         auth_msg.tid = client_tid
         print( str(time())+' '+self.name+': Sending response to '+client_address[0]+':'+str(client_address[1])+': '+auth_msg.value+'.' )
         self._socket.sendto( auth_msg.encode(), client_address )
+        self.dns_table.print_table()
 
     # ============================================
     # ============================================
