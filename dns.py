@@ -72,7 +72,7 @@ class DnsMessage:
         fmt = '!IBII'+str(nlength)+'s'+str(vlength)+'s'
         if len( encMsg ) != calcsize( fmt ):
             message_valid = False
-        6
+        
         decMsg = unpack( fmt, encMsg )
         qr_type = format( decMsg[1], '#010b' )
 
@@ -171,13 +171,17 @@ class DnsTable:
 
         self._table_locked = True
         
-        print( '\n %-30s %-8s %-30s %-6s %-5s' % ('Name', 'Type', 'Value', 'TTS', 'Static') )
-        print( '---------------------------------------------------------------------------------------' )
+        print( '\n %-6s %-30s %-8s %-30s %-6s %-5s' % ('Rec #', 'Name', 'Type', 'Value', 'TTS', 'Static') )
+        print( '----------------------------------------------------------------------------------------------' )
 
+        i = 1
         for key in self.rr:
-            self.rr[key].print()
+            print( '|%-6d|%-30s|%-8s|%-30s|%-6d|%-7d|' % \
+                (i, self.rr[key].name, self.rr[key].type, self.rr[key].value, self.rr[key].ttl, self.rr[key].static) )
+            i += 1
+            
 
-        print( '---------------------------------------------------------------------------------------' )
+        print( '----------------------------------------------------------------------------------------------' )
         print( '\n' )
         self._table_locked = False
 
