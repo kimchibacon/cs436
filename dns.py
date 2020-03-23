@@ -3,6 +3,7 @@ from socket import *
 from threading import Thread
 from struct import pack,unpack,calcsize
 from time import sleep,time
+import pickle
 
 #-------------------------------------------------------------------------
 # DnsRecord
@@ -57,7 +58,7 @@ class DnsMessage:
             rtype = DnsMessage.types['INVALID']
 
         qr = format( self.is_response, '#04' )
-        qr_type = int( '0b'+qr+rtype, 2 )
+        qr_type = int( qr+rtype, 2 )
         encMsg = pack( fmt, self.tid, qr_type, len(self.name), len(self.value), self.name.encode(), self.value.encode() )
         return encMsg
 
@@ -185,6 +186,8 @@ class DnsTable:
         print( '\n' )
         self._table_locked = False
 
+
+
             
 #-------------------------------------------------------------------------
 # DnsServer 
@@ -208,6 +211,9 @@ class DnsServer:
     # ============================================
     def handle_dns_message( self ):
         enc_msg, src_address = self._socket.recvfrom( 2048 )
+        if enc_msg.decode() == 'ADMIN IN THE CLEAR':
+            self.send_admin_message( src_address )
+            return
         src_msg = DnsMessage.decode_message( enc_msg )
 
         # If the message received is in the wrong format, it
@@ -298,3 +304,11 @@ class DnsServer:
     def _generate_tid( self ):
         self._tid += 1
         return self._tid
+    
+    # ============================================
+    # ============================================
+    def send_admin_message( self, admin_address ):
+        print( str(time())+' '+self.name+': Admin request received. Sending current table to admin user.' )
+        msg = pickle.dumps( self.dns_table.rr )
+        self._socket.sendto( msg, admin_address )
+        self.dns_table.print_table()
