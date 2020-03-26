@@ -1,6 +1,5 @@
 from socket import *
 from dns import DnsRecord,DnsMessage,DnsTable
-from time import time
 
 server_name = '127.0.0.1'
 server_port = 15000
@@ -18,7 +17,7 @@ while True:
     
     if key in dns_table.rr.keys():
         record = dns_table.rr[key]
-        print( str(time())+' client: Found "'+rtype+'" record for "'+hostname+'" in local DNS table.' )
+        print( 'client: Found "'+rtype+'" record for "'+hostname+'" in local DNS table.' )
         output = 'Response: '+record.name+', '+record.type+': '+record.value+'.'
     else:
         client_socket.sendto( msg.encode(), (server_name, server_port) )

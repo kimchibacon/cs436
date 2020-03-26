@@ -221,7 +221,7 @@ class DnsServer:
         #
         if src_msg.type == 'INVALID':
             value = 'Invalid query!'
-            print( str(time())+' '+self.name+': Invalid message received.' )
+            print( self.name+': Invalid message received.' )
             self._socket.sendto( src_msg.encode(), src_address )
             return
 
@@ -236,7 +236,7 @@ class DnsServer:
         ret_msg = None
         key = src_msg.name+':'+src_msg.type
 
-        print( str(time())+' '+self.name+': Request received from host at '+src_address[0]+':'+str(src_address[1])+' for hostname "'+src_msg.name+'"' )
+        print( self.name+': Request received from host at '+src_address[0]+':'+str(src_address[1])+' for hostname "'+src_msg.name+'"' )
 
         # If the the local record table has what we're looking for
         # prepare a message with that information
@@ -244,7 +244,7 @@ class DnsServer:
         if key in self.dns_table.rr.keys():
             dns_rec = self.dns_table.rr[key]
             ret_msg = DnsMessage( src_msg.tid, True, dns_rec.type, dns_rec.name, dns_rec.value ) 
-            print( str(time())+' '+self.name+': Found "'+src_msg.type+'" record for "'+src_msg.name+'" in local table.' )
+            print( self.name+': Found "'+src_msg.type+'" record for "'+src_msg.name+'" in local table.' )
 
         # If not, look for an authoritative server in local records
         #
@@ -261,22 +261,22 @@ class DnsServer:
                     auth_port = 21000
                 elif domain == 'viasat.com':
                     auth_port = 22000
-                auth_msg = DnsMessage( self._generate_tid(), False, 'A', src_msg.name, '' )
+                auth_msg = DnsMessage( self._generate_tid(), False, src_msg.type, src_msg.name, '' )
                 self._pending_queries[self._tid] = (src_address, src_msg.tid)
 
-                print( str(time())+' '+self.name+': "'+src_msg.type+'" record not found for '+src_msg.name+'. Sending "'+src_msg.type+'" request to 127.0.0.1:'+str(auth_port)+'.' )
+                print( self.name+': "'+src_msg.type+'" record not found for '+src_msg.name+'. Sending "'+src_msg.type+'" request to 127.0.0.1:'+str(auth_port)+'.' )
                 self._socket.sendto( auth_msg.encode(), ('127.0.0.1', auth_port) )
                 return
                 
             # If not found, let the sender know
             #
             else:
-                ret_msg = DnsMessage( src_msg.tid, src_msg.is_response, src_msg.type, src_msg.name, 'Record not found' )
-                print( str(time())+' '+self.name+': No '+src_msg.type+' record found for '+src_msg.name )
+                ret_msg = DnsMessage( src_msg.tid, True, src_msg.type, src_msg.name, 'Record not found' )
+                print( self.name+': No '+src_msg.type+' record found for '+src_msg.name )
 
         # Send final response back to client 
         #
-        print( str(time())+' '+self.name+': Sending response to '+src_address[0]+':'+str(src_address[1])+': '+ret_msg.value+'.' )
+        print( self.name+': Sending response to '+src_address[0]+':'+str(src_address[1])+': '+ret_msg.value+'.' )
         self._socket.sendto( ret_msg.encode(), src_address )
         self.dns_table.print_table()
 
@@ -287,7 +287,7 @@ class DnsServer:
             del self._pending_queries[auth_msg.tid]
             return;
 
-        print( str(time())+' '+self.name+': Received response from '+src_address[0]+':'+str(src_address[1])+': '+auth_msg.value+'.' )
+        print( self.name+': Received response from '+src_address[0]+':'+str(src_address[1])+': '+auth_msg.value+'.' )
         
         if auth_msg.value != 'Record not found':
             self.dns_table.append_record( DnsRecord(auth_msg.name, auth_msg.type, auth_msg.value, 60, 0) )
@@ -295,7 +295,7 @@ class DnsServer:
         client_address,client_tid = self._pending_queries[auth_msg.tid]
         del self._pending_queries[auth_msg.tid]
         auth_msg.tid = client_tid
-        print( str(time())+' '+self.name+': Sending response to '+client_address[0]+':'+str(client_address[1])+': '+auth_msg.value+'.' )
+        print( self.name+': Sending response to '+client_address[0]+':'+str(client_address[1])+': '+auth_msg.value+'.' )
         self._socket.sendto( auth_msg.encode(), client_address )
         self.dns_table.print_table()
 
@@ -308,7 +308,7 @@ class DnsServer:
     # ============================================
     # ============================================
     def send_admin_message( self, admin_address ):
-        print( str(time())+' '+self.name+': Admin request received. Sending current table to admin user.' )
+        print( self.name+': Admin request received. Sending current table to admin user.' )
         msg = pickle.dumps( self.dns_table.rr )
         self._socket.sendto( msg, admin_address )
         self.dns_table.print_table()

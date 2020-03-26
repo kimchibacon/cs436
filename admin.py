@@ -1,6 +1,5 @@
 from socket import *
 from dns import DnsTable
-from time import sleep,time
 import pickle
 
 server_name = '127.0.0.1'
